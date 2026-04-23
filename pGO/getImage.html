@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>pGO — 수집</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #05070d; color: #e8eefc; }
+    #splash {
+      position: fixed; inset: 0; z-index: 5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 50% 30%, #1a2744, #05070d 55%);
+      padding: 24px;
+      text-align: center;
+    }
+    #splash h1 { margin: 0 0 12px; font-size: 22px; }
+    #splash p { margin: 0 0 22px; color: #9db0d8; font-size: 14px; line-height: 1.5; max-width: 320px; }
+    #btnGo {
+      padding: 16px 40px; border: 0; border-radius: 999px; font-size: 18px; font-weight: 800;
+      cursor: pointer; color: #fff;
+      background: linear-gradient(135deg, #3ddc84, #2aa87a);
+      box-shadow: 0 10px 30px rgba(45, 200, 130, 0.35);
+    }
+    #app {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #app.show {
+      display: flex;
+    }
+    #mapStack {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+    }
+    #map {
+      position: absolute;
+      inset: 0;
+    }
+    .leaflet-container .pgo-spawn-popup .leaflet-popup-content-wrapper {
+      background: rgba(12, 18, 32, 0.97);
+      color: #e8eefc;
+      border: 1px solid rgba(120, 160, 255, 0.35);
+      border-radius: 12px;
+      box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+    }
+    .leaflet-container .pgo-spawn-popup .leaflet-popup-tip {
+      background: rgba(12, 18, 32, 0.97);
+      box-shadow: none;
+    }
+    .pgo-pp-wrap { min-width: 0; max-width: 280px; }
+    .pgo-pp-cap { font-size: 15px; line-height: 1.45; font-weight: 600; margin-bottom: 8px; word-break: break-word; }
+    .pgo-pp-dist { font-size: 16px; font-weight: 800; color: #7ae3b5; margin-bottom: 6px; }
+    .pgo-pp-row { font-size: 12px; line-height: 1.4; color: #9db0d8; }
+    .pgo-pp-row + .pgo-pp-row { margin-top: 2px; }
+    .pgo-pp-dim { color: #7f90b8; }
+    .hud {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      z-index: 2;
+      padding: 10px 12px calc(8px + env(safe-area-inset-top)) 12px;
+      padding-right: calc(118px + env(safe-area-inset-right));
+      display: flex; gap: 8px; align-items: center;
+      background: rgba(5, 7, 13, 0.55); backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(120, 160, 255, 0.12);
+    }
+    .hud .grow { flex: 1; font-size: 13px; color: #a8b7da; min-width: 0; }
+    #btnList {
+      position: fixed;
+      top: calc(8px + env(safe-area-inset-top, 0px));
+      right: max(10px, env(safe-area-inset-right, 0px));
+      z-index: 5;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(120, 160, 255, 0.35);
+      background: rgba(18, 26, 44, 0.92);
+      color: #e8eefc;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    }
+    #btnList[hidden] { display: none !important; }
+    #btnList:active { transform: scale(0.97); }
+    #catchPrompt {
+      display: none;
+      flex: 0 0 auto;
+      position: relative;
+      z-index: 3;
+      width: 100%;
+      padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+      background: linear-gradient(to top, rgba(5, 7, 13, 0.98), rgba(5, 7, 13, 0.9));
+      border-top: 1px solid rgba(255, 100, 100, 0.4);
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+    }
+    #catchPrompt.show {
+      display: block;
+    }
+    .catch-bar-inner {
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    #btnStartCatch {
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      border: 0;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      color: #0a0e18;
+      background: linear-gradient(135deg, #ffd28a, #ff9f43);
+      box-shadow: 0 6px 20px rgba(255, 159, 67, 0.4);
+    }
+    #btnStartCatch:active { transform: scale(0.98); }
+    #encounter {
+      display: none; position: fixed; inset: 0; z-index: 4;
+      background: #000;
+    }
+    #encounter.show { display: block; }
+    #cam {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; background: #000;
+    }
+    .encounter-ui {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      pointer-events: none;
+    }
+    .spawn-float-stage {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .spawn-float {
+      position: absolute;
+      left: 50%;
+      top: 38%;
+      width: min(58vw, 280px);
+      transform: translate(-50%, -50%);
+      will-change: transform;
+      animation: pgoBounceFloat 3.1s cubic-bezier(0.45, 0, 0.25, 1.25) infinite;
+      filter: drop-shadow(0 14px 32px rgba(0, 0, 0, 0.55));
+    }
+    .spawn-float img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 16px;
+      object-fit: contain;
+      max-height: 48vh;
+    }
+    @keyframes pgoBounceFloat {
+      0%, 100% { transform: translate(-50%, -50%) translate(0, 0) scale(1); }
+      12% { transform: translate(-50%, -50%) translate(10vw, -9vh) scale(1.06); }
+      24% { transform: translate(-50%, -50%) translate(-8vw, 5vh) scale(0.96); }
+      38% { transform: translate(-50%, -50%) translate(-12vw, -6vh) scale(1.04); }
+      52% { transform: translate(-50%, -50%) translate(6vw, 8vh) scale(0.98); }
+      66% { transform: translate(-50%, -50%) translate(11vw, 3vh) scale(1.05); }
+      80% { transform: translate(-50%, -50%) translate(-5vw, -7vh) scale(0.97); }
+    }
+    .encounter-bar {
+      pointer-events: auto;
+      flex-shrink: 0;
+      padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
+      background: linear-gradient(to top, rgba(5, 7, 13, 0.94), rgba(5, 7, 13, 0.55), transparent);
+      border-top: 1px solid rgba(120, 160, 255, 0.12);
+    }
+    .encounter-bar p {
+      margin: 0 0 12px;
+      font-size: 15px;
+      line-height: 1.45;
+      color: #e8eefc;
+      text-align: center;
+    }
+    .btn-catch {
+      display: block;
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      border: 0;
+      border-radius: 14px;
+      font-size: 18px;
+      font-weight: 800;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, #3ddc84, #2aa87a);
+      box-shadow: 0 10px 28px rgba(45, 200, 130, 0.35);
+    }
+    .btn-catch:active { transform: scale(0.98); }
+    .btn-catch:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+    #collection {
+      display: none; position: fixed; inset: 0; z-index: 6;
+      background: rgba(5, 7, 13, 0.96);
+      padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+      overflow: auto;
+    }
+    #collection.show { display: block; }
+    #collection h2 { margin: 8px 0 12px; font-size: 18px; }
+    .row {
+      display: flex; gap: 12px; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid #1e2a44;
+    }
+    .row img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: #111; }
+    .row .meta { flex: 1; font-size: 14px; color: #c9d6f5; }
+    .row .when { font-size: 12px; color: #7f90b8; margin-top: 4px; }
+    .row.row--caught { cursor: pointer; -webkit-tap-highlight-color: rgba(120, 160, 255, 0.15); }
+    .row.row--caught:active { background: rgba(20, 28, 48, 0.55); border-radius: 10px; }
+    #caughtLightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 7;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+      padding-top: max(14px, env(safe-area-inset-top, 0px));
+      box-sizing: border-box;
+    }
+    #caughtLightbox.show {
+      display: flex;
+    }
+    .caught-lb-scrim {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: rgba(0, 0, 0, 0.9);
+    }
+    .caught-lb-panel {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 560px;
+      max-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      min-height: 0;
+    }
+    .caught-lb-x {
+      align-self: flex-end;
+      margin: 0 0 8px 0;
+      padding: 8px 16px;
+      border: 1px solid rgba(200, 210, 255, 0.35);
+      border-radius: 10px;
+      background: rgba(20, 28, 48, 0.95);
+      color: #e8eefc;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .caught-lb-x:active { transform: scale(0.98); }
+    .caught-lb-imgwrap {
+      flex: 0 1 auto;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-height: min(72vh, 720px);
+    }
+    .caught-lb-imgwrap img {
+      max-width: 100%;
+      max-height: min(72vh, 720px);
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #111;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .caught-lb-cap {
+      margin: 12px 0 4px;
+      font-size: 16px;
+      line-height: 1.45;
+      text-align: center;
+      color: #e8eefc;
+    }
+    .caught-lb-when {
+      font-size: 12px;
+      text-align: center;
+      color: #7f90b8;
+    }
+    .pgo-user-marker-root {
+      background: transparent !important;
+      border: none !important;
+    }
+    .pgo-user-marker {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      pointer-events: none;
+    }
+    .pgo-user-pulse {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 22px;
+      height: 22px;
+      margin-left: -11px;
+      margin-top: -11px;
+      border-radius: 50%;
+      border: 2px solid rgba(124, 196, 255, 0.9);
+      box-sizing: border-box;
+      animation: pgoLocPulse 2s cubic-bezier(0.2, 0.8, 0.4, 1) infinite;
+    }
+    .pgo-user-pulse.pgo-delay {
+      animation-delay: 1s;
+      border-color: rgba(79, 140, 255, 0.55);
+    }
+    .pgo-user-core {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      margin-left: -8px;
+      margin-top: -8px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 32% 28%, #d2ecff, #4f8cff 55%, #356bd4);
+      border: 2.5px solid #fff;
+      animation: pgoCoreGlow 2.2s ease-in-out infinite;
+    }
+    @keyframes pgoLocPulse {
+      0% { transform: scale(0.55); opacity: 1; }
+      65% { transform: scale(2.85); opacity: 0; }
+      100% { transform: scale(2.85); opacity: 0; }
+    }
+    @keyframes pgoCoreGlow {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.45), 0 2px 12px rgba(0, 0, 0, 0.35);
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(127, 196, 255, 0.2), 0 2px 16px rgba(79, 140, 255, 0.55);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <h1>pGO</h1>
+    <p>위치와 카메라 권한이 필요합니다. 아래 버튼을 누른 뒤 지도에서 주변을 탐색하세요.</p>
+    <button id="btnGo" type="button">Go</button>
+    <p id="splashErr" style="color:#ff8a8a;margin-top:16px;font-size:13px;"></p>
+  </div>
+
+  <div id="app">
+    <div id="mapStack">
+      <div id="map"></div>
+      <div class="hud">
+        <div class="grow" id="hudText">준비됨</div>
+      </div>
+    </div>
+    <div id="catchPrompt" aria-live="polite">
+      <div class="catch-bar-inner">
+        <button type="button" id="btnStartCatch">Catch~</button>
+      </div>
+    </div>
+  </div>
+
+  <button type="button" id="btnList" hidden>잡은 이미지</button>
+
+  <div id="encounter" aria-live="polite">
+    <video id="cam" playsinline autoplay muted></video>
+    <div class="encounter-ui">
+      <div class="spawn-float-stage">
+        <div class="spawn-float" id="spawnFloat">
+          <img id="spawnImg" alt="" />
+        </div>
+      </div>
+      <div class="encounter-bar" id="encounterBar">
+        <p id="spawnCaption"></p>
+        <button type="button" id="btnCatch" class="btn-catch">잡기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="collection">
+    <button type="button" id="btnCloseList" style="margin-bottom:8px;">닫기</button>
+    <h2>잡은 이미지</h2>
+    <div id="collectionBody"></div>
+  </div>
+
+  <div id="caughtLightbox" aria-hidden="true">
+    <div class="caught-lb-scrim" id="caughtLightboxScrim" role="button" aria-label="닫기"></div>
+    <div class="caught-lb-panel" role="dialog" aria-label="이미지 보기" aria-modal="true">
+      <button type="button" class="caught-lb-x" id="caughtLightboxClose">닫기</button>
+      <div class="caught-lb-imgwrap">
+        <img id="caughtLightboxImg" src="" alt="" />
+      </div>
+      <p class="caught-lb-cap" id="caughtLightboxCaption"></p>
+      <p class="caught-lb-when" id="caughtLightboxWhen"></p>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/pgo-common.js"></script>
+  <script src="js/google-maps-config.js"></script>
+  <script src="js/pgo-google-maps.js"></script>
+  <script>
+    (function () {
+      var PROXIMITY_M = 30;
+      /** 잡기(카메라) 화면: 이 배수 m 이상 멀어지면 종료 */
+      var EXIT_MULT = 1.45;
+      /** Catch?? 바: 한번 뜨면 이 배수 * PROXIMITY_M 까지는 GPS 출렁임으로 안 사라짐 (30m↔32m 떨림 방지) */
+      var CATCH_BAR_EXIT_MULT = 1.5;
+
+      var map;
+      var markersLayer;
+      var spawnMarkers = {};
+      var spawnsById = {};
+      var caughtIds = {};
+      var lastPos = null;
+      var mediaStream = null;
+      var activeEncounterId = null;
+      var promptEncounterId = null;
+      var wakeLockHandle = null;
+      var unsubSpawns = null;
+      var unsubCaught = null;
+      var watchId = null;
+      /** GPS 한 틱 튀어 !n / 거리 임계 넘는 오판 시 Catch 바·HUD가 깜빡이지 않게 */
+      var noNearestStreak = 0;
+      var catchBarFarStreak = 0;
+
+      var splash = document.getElementById("splash");
+      var splashErr = document.getElementById("splashErr");
+      var app = document.getElementById("app");
+      var hudText = document.getElementById("hudText");
+      var encounterEl = document.getElementById("encounter");
+      var videoEl = document.getElementById("cam");
+      var spawnImg = document.getElementById("spawnImg");
+      var spawnCaption = document.getElementById("spawnCaption");
+      var catchPrompt = document.getElementById("catchPrompt");
+      var encounterBar = document.getElementById("encounterBar");
+      var collectionEl = document.getElementById("collection");
+      var collectionBody = document.getElementById("collectionBody");
+      var caughtLightbox = document.getElementById("caughtLightbox");
+      var caughtLightboxImg = document.getElementById("caughtLightboxImg");
+      var caughtLightboxCaption = document.getElementById("caughtLightboxCaption");
+      var caughtLightboxWhen = document.getElementById("caughtLightboxWhen");
+      var caughtLightboxScrim = document.getElementById("caughtLightboxScrim");
+      var caughtLightboxClose = document.getElementById("caughtLightboxClose");
+
+      function setHud(t) {
+        hudText.textContent = t;
+      }
+
+      function makeUserLocationIcon() {
+        return L.divIcon({
+          className: "pgo-user-marker-root",
+          html:
+            '<div class="pgo-user-marker">' +
+            '<div class="pgo-user-pulse"></div>' +
+            '<div class="pgo-user-pulse pgo-delay"></div>' +
+            '<div class="pgo-user-core"></div>' +
+            "</div>",
+          iconSize: [44, 44],
+          iconAnchor: [22, 22]
+        });
+      }
+
+      function stopCamera() {
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(function (t) {
+            t.stop();
+          });
+          mediaStream = null;
+        }
+        videoEl.srcObject = null;
+      }
+
+      function relayoutMapForCatchBar() {
+        if (map && PGO.invalidateMapSizeSoon) {
+          PGO.invalidateMapSizeSoon(map);
+        }
+      }
+
+      function hideCatchPrompt() {
+        promptEncounterId = null;
+        catchPrompt.classList.remove("show");
+        relayoutMapForCatchBar();
+      }
+
+      function showCatchPrompt(spawnId) {
+        promptEncounterId = spawnId;
+        catchPrompt.classList.add("show");
+        relayoutMapForCatchBar();
+      }
+
+      function releaseWakeLock() {
+        if (wakeLockHandle && typeof wakeLockHandle.release === "function") {
+          wakeLockHandle.release().catch(function () {});
+        }
+        wakeLockHandle = null;
+      }
+
+      function requestScreenWakeLock() {
+        if (!("wakeLock" in navigator)) return;
+        navigator.wakeLock
+          .request("screen")
+          .then(function (sentinel) {
+            wakeLockHandle = sentinel;
+            sentinel.addEventListener("release", function () {
+              if (wakeLockHandle === sentinel) wakeLockHandle = null;
+            });
+          })
+          .catch(function () {});
+      }
+
+      function leaveEncounter() {
+        activeEncounterId = null;
+        encounterEl.classList.remove("show");
+        stopCamera();
+      }
+
+      function enterEncounter(spawn) {
+        if (activeEncounterId === spawn.id) return;
+        hideCatchPrompt();
+        activeEncounterId = spawn.id;
+        spawnImg.src = spawn.imageUrl;
+        spawnCaption.textContent = spawn.caption || "";
+        encounterEl.classList.add("show");
+        stopCamera();
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setHud("카메라를 지원하지 않습니다.");
+          return;
+        }
+        navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
+          .then(function (stream) {
+            mediaStream = stream;
+            videoEl.srcObject = stream;
+            return videoEl.play();
+          })
+          .catch(function (e) {
+            setHud("카메라 오류: " + (e && e.message ? e.message : String(e)));
+          });
+      }
+
+      function escapeHtml(t) {
+        if (t == null || t === "") return "";
+        return String(t)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      /** Firestore string/number 모두, 마커·거리 계산을 동일 규칙으로 */
+      function spawnGeo(s) {
+        if (!s) return null;
+        var la = Number(s.lat);
+        var ln = Number(s.lng);
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+        return { lat: la, lng: ln };
+      }
+
+      function buildSpawnMarkerPopupHtml(s) {
+        var g = spawnGeo(s);
+        var cap =
+          s.caption && String(s.caption).trim()
+            ? escapeHtml(s.caption)
+            : "<span class=\"pgo-pp-dim\">(문구 없음)</span>";
+        var dLine;
+        var meLine;
+        if (lastPos && g) {
+          var mts = PGO.haversineMeters(lastPos.lat, lastPos.lng, g.lat, g.lng);
+          dLine = "현재 위치에서 약 " + Math.round(mts) + "m";
+          meLine = "내 위치: " + lastPos.lat.toFixed(5) + ", " + lastPos.lng.toFixed(5);
+        } else if (lastPos && !g) {
+          dLine = "거리: 스폰 좌표를 확인할 수 없음";
+          meLine = "내 위치: " + lastPos.lat.toFixed(5) + ", " + lastPos.lng.toFixed(5);
+        } else {
+          dLine = "거리: 위치를 아직 못 잡음";
+          meLine = "내 위치: —";
+        }
+        var spawnLine = g
+          ? "스폰: " + g.lat.toFixed(5) + ", " + g.lng.toFixed(5)
+          : "스폰: (좌표 없음)";
+        return (
+          "<div class=\"pgo-pp-wrap\">" +
+            "<div class=\"pgo-pp-cap\">" +
+            cap +
+            "</div>" +
+            "<div class=\"pgo-pp-dist\">" +
+            escapeHtml(dLine) +
+            "</div>" +
+            "<div class=\"pgo-pp-row\">" +
+            escapeHtml(meLine) +
+            "</div>" +
+            "<div class=\"pgo-pp-row pgo-pp-dim\">" +
+            escapeHtml(spawnLine) +
+            "</div>" +
+          "</div>"
+        );
+      }
+
+      function refreshMarkers() {
+        if (!markersLayer) return;
+        markersLayer.clearLayers();
+        spawnMarkers = {};
+        Object.keys(spawnsById).forEach(function (id) {
+          if (caughtIds[id]) return;
+          var s = spawnsById[id];
+          var g = spawnGeo(s);
+          if (!g) return;
+          var m = L.circleMarker([g.lat, g.lng], {
+            radius: 10,
+            color: "#d32f2f",
+            fillColor: "#ff9f43",
+            fillOpacity: 0.88,
+            weight: 2
+          }).addTo(markersLayer);
+          m.bindPopup("", {
+            className: "pgo-spawn-popup",
+            maxWidth: 300,
+            closeButton: true
+          });
+          m.on("popupopen", function () {
+            m.setPopupContent(buildSpawnMarkerPopupHtml(s));
+          });
+          spawnMarkers[id] = m;
+        });
+      }
+
+      function nearestUncaught() {
+        if (!lastPos) return null;
+        var best = null;
+        var bestD = Infinity;
+        Object.keys(spawnsById).forEach(function (id) {
+          if (caughtIds[id]) return;
+          var s = spawnsById[id];
+          var g = spawnGeo(s);
+          if (!g) return;
+          var d = PGO.haversineMeters(lastPos.lat, lastPos.lng, g.lat, g.lng);
+          if (Number.isNaN(d) || d < 0) return;
+          if (d < bestD) {
+            bestD = d;
+            best = { id: id, d: d, spawn: s };
+          }
+        });
+        if (!best) return null;
+        best.spawn.id = best.id;
+        return best;
+      }
+
+      function tickProximity() {
+        if (!lastPos) {
+          setHud("위치 대기 중…");
+          return;
+        }
+        var n = nearestUncaught();
+        if (!n) {
+          noNearestStreak += 1;
+          if (noNearestStreak >= 2) {
+            setHud("주변에 미수집 스폰이 없습니다.");
+            hideCatchPrompt();
+            catchBarFarStreak = 0;
+            if (activeEncounterId) leaveEncounter();
+          }
+          return;
+        }
+        noNearestStreak = 0;
+
+        setHud("가장 가까운 스폰: 약 " + Math.round(n.d) + "m");
+
+        if (activeEncounterId) {
+          if (n.id === activeEncounterId && n.d > PROXIMITY_M * EXIT_MULT) {
+            leaveEncounter();
+          }
+          return;
+        }
+
+        var barVisible = catchPrompt.classList.contains("show");
+        if (!barVisible) {
+          catchBarFarStreak = 0;
+          if (n.d <= PROXIMITY_M) {
+            n.spawn.id = n.id;
+            showCatchPrompt(n.id);
+          }
+        } else {
+          if (n.d > PROXIMITY_M * CATCH_BAR_EXIT_MULT) {
+            catchBarFarStreak += 1;
+            if (catchBarFarStreak >= 2) {
+              hideCatchPrompt();
+              catchBarFarStreak = 0;
+            }
+          } else {
+            catchBarFarStreak = 0;
+            if (n.id !== promptEncounterId) {
+              n.spawn.id = n.id;
+              showCatchPrompt(n.id);
+            }
+          }
+        }
+      }
+
+      function catchSpawn(spawnId) {
+        var s = spawnsById[spawnId];
+        if (!s || caughtIds[spawnId]) return;
+        var uid = PGO.getAuth().currentUser.uid;
+        var ref = PGO.getDb().collection("users").doc(uid).collection("caught").doc(spawnId);
+        encounterBar.classList.add("catching");
+        ref
+          .set({
+            spawnId: spawnId,
+            caption: s.caption || "",
+            imageUrl: s.imageUrl || "",
+            caughtAt: firebase.firestore.FieldValue.serverTimestamp()
+          })
+          .then(function () {
+            caughtIds[spawnId] = true;
+            leaveEncounter();
+            refreshMarkers();
+            setHud("잡았습니다!");
+          })
+          .catch(function (e) {
+            setHud("저장 실패: " + (e && e.message ? e.message : String(e)));
+          })
+          .finally(function () {
+            encounterBar.classList.remove("catching");
+          });
+      }
+
+      document.getElementById("btnStartCatch").addEventListener("click", function () {
+        if (!promptEncounterId) return;
+        var sid = promptEncounterId;
+        var s = spawnsById[sid];
+        if (!s || caughtIds[sid]) {
+          hideCatchPrompt();
+          return;
+        }
+        requestScreenWakeLock();
+        var spawn = Object.assign({}, s);
+        spawn.id = sid;
+        enterEncounter(spawn);
+      });
+
+      document.getElementById("btnCatch").addEventListener("click", function () {
+        if (!activeEncounterId) return;
+        catchSpawn(activeEncounterId);
+      });
+
+      document.getElementById("btnList").addEventListener("click", function () {
+        collectionEl.classList.add("show");
+      });
+      document.getElementById("btnCloseList").addEventListener("click", function () {
+        collectionEl.classList.remove("show");
+      });
+
+      function openCaughtLightbox(imageUrl, caption, whenText) {
+        caughtLightboxImg.src = imageUrl || "";
+        caughtLightboxImg.alt = (caption && caption.slice(0, 80)) || "잡은 이미지";
+        caughtLightboxCaption.textContent = caption || "";
+        caughtLightboxWhen.textContent = whenText || "";
+        caughtLightbox.classList.add("show");
+        caughtLightbox.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeCaughtLightbox() {
+        caughtLightbox.classList.remove("show");
+        caughtLightbox.setAttribute("aria-hidden", "true");
+        caughtLightboxImg.removeAttribute("src");
+        document.body.style.overflow = "";
+      }
+
+      caughtLightboxScrim.addEventListener("click", function () {
+        closeCaughtLightbox();
+      });
+      caughtLightboxClose.addEventListener("click", function () {
+        closeCaughtLightbox();
+      });
+      window.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && caughtLightbox.classList.contains("show")) {
+          closeCaughtLightbox();
+        }
+      });
+
+      function renderCollection(snapshot) {
+        collectionBody.innerHTML = "";
+        var docs = snapshot.docs.slice().sort(function (a, b) {
+          var ta = a.data().caughtAt && a.data().caughtAt.toMillis ? a.data().caughtAt.toMillis() : 0;
+          var tb = b.data().caughtAt && b.data().caughtAt.toMillis ? b.data().caughtAt.toMillis() : 0;
+          return tb - ta;
+        });
+        if (!docs.length) {
+          collectionBody.textContent = "아직 없습니다.";
+          return;
+        }
+        docs.forEach(function (d) {
+          var data = d.data();
+          var whenText = "";
+          if (data.caughtAt && data.caughtAt.toDate) {
+            whenText = data.caughtAt.toDate().toLocaleString();
+          }
+          var row = document.createElement("div");
+          row.className = "row row--caught";
+          var img = document.createElement("img");
+          img.src = data.imageUrl || "";
+          img.alt = "";
+          img.loading = "lazy";
+          var meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = data.caption || "";
+          var when = document.createElement("div");
+          when.className = "when";
+          when.textContent = whenText;
+          meta.appendChild(when);
+          row.appendChild(img);
+          row.appendChild(meta);
+          row.setAttribute("role", "button");
+          row.setAttribute("tabindex", "0");
+          function openThis() {
+            openCaughtLightbox(data.imageUrl || "", data.caption || "", whenText);
+          }
+          row.addEventListener("click", openThis);
+          row.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openThis();
+            }
+          });
+          collectionBody.appendChild(row);
+        });
+      }
+
+      function startApp() {
+        app.classList.add("show");
+        document.getElementById("btnList").removeAttribute("hidden");
+        splash.style.display = "none";
+        PGO.whenMapBaseReady(function () {
+          map = L.map("map", { zoomControl: true }).setView([37.5665, 126.9780], 14);
+          PGO.addMapBaseLayer(map);
+          PGO.invalidateMapSizeSoon(map);
+          markersLayer = L.layerGroup().addTo(map);
+          var startLat = lastPos ? lastPos.lat : 37.5665;
+          var startLng = lastPos ? lastPos.lng : 126.9780;
+          map.setView([startLat, startLng], lastPos ? 16 : 14);
+          var userDot = L.marker([startLat, startLng], {
+            icon: makeUserLocationIcon(),
+            zIndexOffset: 1000,
+            interactive: false
+          }).addTo(map);
+
+          unsubSpawns = PGO.getDb()
+            .collection("spawns")
+            .where("active", "==", true)
+            .onSnapshot(function (snap) {
+              spawnsById = {};
+              snap.forEach(function (doc) {
+                spawnsById[doc.id] = doc.data();
+              });
+              refreshMarkers();
+              tickProximity();
+            });
+
+          unsubCaught = PGO.getDb()
+            .collection("users")
+            .doc(PGO.getAuth().currentUser.uid)
+            .collection("caught")
+            .onSnapshot(function (snap) {
+              caughtIds = {};
+              snap.forEach(function (d) {
+                caughtIds[d.id] = true;
+              });
+              refreshMarkers();
+              renderCollection(snap);
+              tickProximity();
+            });
+
+          if (!navigator.geolocation) {
+            setHud("위치 미지원");
+            return;
+          }
+          watchId = navigator.geolocation.watchPosition(
+            function (pos) {
+              lastPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+              userDot.setLatLng([lastPos.lat, lastPos.lng]);
+              map.panTo([lastPos.lat, lastPos.lng]);
+              tickProximity();
+            },
+            function (err) {
+              setHud("위치 오류: " + err.message);
+            },
+            { enableHighAccuracy: true, maximumAge: 4000, timeout: 25000 }
+          );
+
+          requestScreenWakeLock();
+        });
+      }
+
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible") {
+          requestScreenWakeLock();
+        }
+      });
+
+      document.getElementById("btnGo").addEventListener("click", function () {
+        splashErr.textContent = "";
+        PGO.signInAnonymous()
+          .then(function () {
+            return new Promise(function (resolve, reject) {
+              if (!navigator.geolocation) {
+                reject(new Error("위치 미지원"));
+                return;
+              }
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                maximumAge: 5000,
+                timeout: 20000
+              });
+            });
+          })
+          .then(function (pos) {
+            lastPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            startApp();
+          })
+          .catch(function (e) {
+            splashErr.textContent = (e && e.message) || String(e);
+          });
+      });
+
+      window.addEventListener("beforeunload", function () {
+        stopCamera();
+        releaseWakeLock();
+        if (watchId != null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+        if (unsubSpawns) unsubSpawns();
+        if (unsubCaught) unsubCaught();
+      });
+    })();
+  </script>
+  <style>
+    @keyframes pgoCatch {
+      to { transform: scale(0.2); opacity: 0.05; }
+    }
+    .encounter-bar.catching { animation: pgoCatch 0.35s ease-in forwards; }
+  </style>
+</body>
+</html>

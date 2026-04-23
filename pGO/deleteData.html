@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>pGO — 잡은 데이터 삭제</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #0b1220; color: #e8eefc; }
+    .wrap {
+      min-height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px calc(24px + env(safe-area-inset-bottom));
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(20, 28, 44, 0.96);
+      border: 1px solid rgba(255, 100, 100, 0.25);
+      border-radius: 16px;
+      padding: 22px 20px 20px;
+    }
+    h1 { margin: 0 0 10px; font-size: 20px; font-weight: 700; }
+    .warn {
+      margin: 0 0 18px;
+      font-size: 14px;
+      line-height: 1.55;
+      color: #ffb4b4;
+    }
+    .meta { font-size: 13px; color: #9db0d8; margin-bottom: 14px; word-break: break-all; }
+    .count { font-size: 15px; font-weight: 600; color: #e8eefc; margin-bottom: 16px; }
+    label.row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      color: #c9d6f5;
+      margin-bottom: 14px;
+      cursor: pointer;
+    }
+    label.row input { margin-top: 3px; flex-shrink: 0; }
+    button.danger {
+      width: 100%;
+      padding: 14px;
+      border: 0;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 16px;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, #e53935, #b71c1c);
+      box-shadow: 0 8px 24px rgba(229, 57, 53, 0.35);
+    }
+    button.danger:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.danger:not(:disabled):active { transform: scale(0.99); }
+    .status { margin-top: 12px; font-size: 13px; min-height: 1.3em; color: #9db0d8; }
+    .status.ok { color: #7ae3b5; }
+    .status.err { color: #ff8a8a; }
+    a.back { display: inline-block; margin-top: 18px; font-size: 14px; color: #7c9fff; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>잡은 데이터 전부 삭제</h1>
+      <p class="warn">현재 로그인(익명) 계정의 <strong>잡은 이미지 기록</strong>만 삭제합니다. 스폰 원본 데이터는 삭제되지 않습니다.</p>
+      <p class="meta" id="authLine">연결 중…</p>
+      <p class="count" id="countLine">조회 중…</p>
+      <label class="row">
+        <input type="checkbox" id="chkConfirm" />
+        <span>위 내용을 이해했고, 복구할 수 없음을 확인했습니다.</span>
+      </label>
+      <button type="button" class="danger" id="btnDelete" disabled>모든 잡은 데이터 삭제</button>
+      <p class="status" id="status"></p>
+      <a class="back" href="getImage.html">← 수집 화면으로</a>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/pgo-common.js"></script>
+  <script>
+    (function () {
+      var BATCH = 450;
+      var authLine = document.getElementById("authLine");
+      var countLine = document.getElementById("countLine");
+      var chk = document.getElementById("chkConfirm");
+      var btn = document.getElementById("btnDelete");
+      var statusEl = document.getElementById("status");
+
+      function setStatus(msg, cls) {
+        statusEl.textContent = msg || "";
+        statusEl.className = "status" + (cls ? " " + cls : "");
+      }
+
+      function chunk(arr, size) {
+        var out = [];
+        for (var i = 0; i < arr.length; i += size) {
+          out.push(arr.slice(i, i + size));
+        }
+        return out;
+      }
+
+      function refreshCount() {
+        var uid = PGO.getAuth().currentUser.uid;
+        return PGO.getDb()
+          .collection("users")
+          .doc(uid)
+          .collection("caught")
+          .get()
+          .then(function (snap) {
+            countLine.textContent = "현재 잡은 기록: " + snap.size + "건";
+            return snap.size;
+          });
+      }
+
+      function deleteAllCaught() {
+        var uid = PGO.getAuth().currentUser.uid;
+        var coll = PGO.getDb().collection("users").doc(uid).collection("caught");
+        return coll.get().then(function (snap) {
+          if (snap.empty) return 0;
+          var refs = snap.docs.map(function (d) {
+            return d.ref;
+          });
+          var parts = chunk(refs, BATCH);
+          var total = 0;
+          return parts.reduce(function (chain, refsPart) {
+            return chain.then(function () {
+              var batch = PGO.getDb().batch();
+              refsPart.forEach(function (r) {
+                batch.delete(r);
+              });
+              return batch.commit().then(function () {
+                total += refsPart.length;
+              });
+            });
+          }, Promise.resolve()).then(function () {
+            return total;
+          });
+        });
+      }
+
+      chk.addEventListener("change", function () {
+        btn.disabled = !chk.checked;
+      });
+
+      btn.addEventListener("click", function () {
+        if (!chk.checked) return;
+        btn.disabled = true;
+        setStatus("삭제 중…");
+        deleteAllCaught()
+          .then(function (n) {
+            chk.checked = false;
+            setStatus(n === 0 ? "삭제할 데이터가 없었습니다." : n + "건 삭제했습니다.", "ok");
+            return refreshCount();
+          })
+          .catch(function (e) {
+            setStatus((e && e.message) || String(e), "err");
+          })
+          .finally(function () {
+            btn.disabled = !chk.checked;
+          });
+      });
+
+      PGO.signInAnonymous()
+        .then(function (cred) {
+          authLine.textContent = "익명 UID: " + cred.user.uid;
+          return refreshCount();
+        })
+        .catch(function (e) {
+          authLine.textContent = "로그인 실패";
+          countLine.textContent = "";
+          setStatus((e && e.message) || String(e), "err");
+        });
+    })();
+  </script>
+</body>
+</html>

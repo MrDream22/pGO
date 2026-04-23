@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>pGO — 데이터 업로드</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #0b1220; color: #e8eefc; }
+    #map { position: fixed; inset: 0; z-index: 0; }
+    .panel {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+      padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+      background: linear-gradient(180deg, transparent, rgba(6, 10, 18, 0.92) 18%);
+    }
+    .card {
+      background: rgba(20, 28, 44, 0.94);
+      border: 1px solid rgba(120, 160, 255, 0.2);
+      border-radius: 14px;
+      padding: 12px;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    label { display: block; font-size: 13px; margin-bottom: 6px; color: #a8b7da; }
+    input[type="text"], input[type="file"] {
+      width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 10px;
+      border: 1px solid #2c3a5c; background: #0f1628; color: #e8eefc;
+    }
+    button.primary {
+      width: 100%; padding: 14px; border: 0; border-radius: 12px;
+      font-weight: 700; font-size: 16px; cursor: pointer;
+      background: linear-gradient(135deg, #4f8cff, #7c5cff); color: #fff;
+    }
+    button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    .status { font-size: 13px; margin-top: 8px; min-height: 1.2em; color: #9db0d8; }
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+      padding: 10px 12px calc(8px + env(safe-area-inset-top));
+      background: rgba(6, 10, 18, 0.72);
+      backdrop-filter: blur(8px);
+      font-size: 14px;
+      border-bottom: 1px solid rgba(120, 160, 255, 0.15);
+    }
+    .pgo-user-marker-root {
+      background: transparent !important;
+      border: none !important;
+    }
+    .pgo-user-marker {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      pointer-events: none;
+    }
+    .pgo-user-pulse {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 22px;
+      height: 22px;
+      margin-left: -11px;
+      margin-top: -11px;
+      border-radius: 50%;
+      border: 2px solid rgba(124, 196, 255, 0.9);
+      box-sizing: border-box;
+      animation: pgoLocPulse 2s cubic-bezier(0.2, 0.8, 0.4, 1) infinite;
+    }
+    .pgo-user-pulse.pgo-delay {
+      animation-delay: 1s;
+      border-color: rgba(79, 140, 255, 0.55);
+    }
+    .pgo-user-core {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      margin-left: -8px;
+      margin-top: -8px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 32% 28%, #d2ecff, #4f8cff 55%, #356bd4);
+      border: 2.5px solid #fff;
+      animation: pgoCoreGlow 2.2s ease-in-out infinite;
+    }
+    @keyframes pgoLocPulse {
+      0% { transform: scale(0.55); opacity: 1; }
+      65% { transform: scale(2.85); opacity: 0; }
+      100% { transform: scale(2.85); opacity: 0; }
+    }
+    @keyframes pgoCoreGlow {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.45), 0 2px 12px rgba(0, 0, 0, 0.35);
+      }
+      50% {
+        box-shadow: 0 0 0 6px rgba(127, 196, 255, 0.2), 0 2px 16px rgba(79, 140, 255, 0.55);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar" id="authStatus">연결 중…</div>
+  <div id="map" aria-hidden="true"></div>
+  <div class="panel">
+    <div class="card">
+      <label for="caption">문구</label>
+      <input id="caption" type="text" maxlength="500" placeholder="표시할 텍스트" autocomplete="off" />
+      <label for="file">이미지 (갤러리)</label>
+      <input id="file" type="file" accept="image/*" />
+      <button class="primary" id="btnRegister" type="button">등록</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/pgo-common.js"></script>
+  <script src="js/google-maps-config.js"></script>
+  <script src="js/pgo-google-maps.js"></script>
+  <script>
+    (function () {
+      var map;
+      var userMarker;
+      var lastPos = null;
+      var fileInput = document.getElementById("file");
+      var captionInput = document.getElementById("caption");
+      var btn = document.getElementById("btnRegister");
+      var statusEl = document.getElementById("status");
+      var authStatus = document.getElementById("authStatus");
+
+      function setStatus(msg) {
+        statusEl.textContent = msg || "";
+      }
+
+      function makeUserLocationIcon() {
+        return L.divIcon({
+          className: "pgo-user-marker-root",
+          html:
+            '<div class="pgo-user-marker">' +
+            '<div class="pgo-user-pulse"></div>' +
+            '<div class="pgo-user-pulse pgo-delay"></div>' +
+            '<div class="pgo-user-core"></div>' +
+            "</div>",
+          iconSize: [44, 44],
+          iconAnchor: [22, 22]
+        });
+      }
+
+      function initMap(lat, lng) {
+        PGO.whenMapBaseReady(function () {
+          if (map) {
+            map.setView([lat, lng], 17);
+            userMarker.setLatLng([lat, lng]);
+            return;
+          }
+          map = L.map("map", { zoomControl: true, attributionControl: true }).setView([lat, lng], 17);
+          PGO.addMapBaseLayer(map);
+          PGO.invalidateMapSizeSoon(map);
+          userMarker = L.marker([lat, lng], {
+            icon: makeUserLocationIcon(),
+            zIndexOffset: 1000,
+            interactive: false
+          }).addTo(map);
+        });
+      }
+
+      function watchLocation() {
+        if (!navigator.geolocation) {
+          setStatus("이 브라우저는 위치 정보를 지원하지 않습니다.");
+          return;
+        }
+        navigator.geolocation.watchPosition(
+          function (pos) {
+            var lat = pos.coords.latitude;
+            var lng = pos.coords.longitude;
+            lastPos = { lat: lat, lng: lng, acc: pos.coords.accuracy };
+            initMap(lat, lng);
+          },
+          function (err) {
+            setStatus("위치 권한/오류: " + err.message);
+          },
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+        );
+      }
+
+      function safeFileName(name) {
+        return String(name || "image").replace(/[^\w.\-]+/g, "_").slice(0, 120);
+      }
+
+      btn.addEventListener("click", function () {
+        var file = fileInput.files && fileInput.files[0];
+        var caption = (captionInput.value || "").trim();
+        if (!file) {
+          setStatus("이미지를 선택하세요.");
+          return;
+        }
+        if (!caption) {
+          setStatus("문구를 입력하세요.");
+          return;
+        }
+        if (!lastPos) {
+          setStatus("위치를 아직 가져오지 못했습니다. 잠시 후 다시 시도하세요.");
+          return;
+        }
+        btn.disabled = true;
+        setStatus("업로드 중…");
+        var uid = PGO.getAuth().currentUser.uid;
+        var path = "uploads/" + uid + "/" + Date.now() + "_" + safeFileName(file.name);
+        var ref = PGO.getStorage().ref().child(path);
+        ref.put(file, { contentType: file.type || "image/jpeg" })
+          .then(function () {
+            return ref.getDownloadURL();
+          })
+          .then(function (url) {
+            return PGO.getDb().collection("spawns").add({
+              lat: lastPos.lat,
+              lng: lastPos.lng,
+              caption: caption,
+              imageUrl: url,
+              imagePath: path,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdByUid: uid,
+              active: true
+            });
+          })
+          .then(function () {
+            setStatus("등록 완료.");
+            fileInput.value = "";
+            captionInput.value = "";
+          })
+          .catch(function (e) {
+            setStatus("실패: " + (e && e.message ? e.message : String(e)));
+          })
+          .finally(function () {
+            btn.disabled = false;
+          });
+      });
+
+      PGO.signInAnonymous()
+        .then(function (cred) {
+          authStatus.textContent = "익명 로그인: " + cred.user.uid.slice(0, 8) + "…";
+          initMap(37.5665, 126.9780);
+          watchLocation();
+        })
+        .catch(function (e) {
+          authStatus.textContent = "로그인 실패";
+          setStatus((e && e.message) || String(e));
+        });
+    })();
+  </script>
+</body>
+</html>

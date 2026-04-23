@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /spawns/{spawnId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+          'lat', 'lng', 'caption', 'imageUrl', 'imagePath',
+          'createdAt', 'createdByUid', 'active'
+        ])
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.active == true
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 500
+        && request.resource.data.imageUrl is string
+        && request.resource.data.imagePath is string
+        && request.resource.data.imagePath.matches('^uploads/' + request.auth.uid + '/.*');
+      allow update, delete: if false;
+    }
+
+    match /users/{uid}/caught/{spawnId} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.spawnId == spawnId
+        && request.resource.data.spawnId is string
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 500
+        && request.resource.data.imageUrl is string
+        && request.resource.data.keys().hasOnly(['spawnId', 'caption', 'imageUrl', 'caughtAt']);
+      allow update: if false;
+      allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+  }
+}
