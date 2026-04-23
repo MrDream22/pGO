@@ -2,5 +2,6 @@
 firebase-debug.log
 firestore-debug.log
 
-# Google Maps API 키 — 저장소에 올리지 않음 (예제: google-maps-config.example.js)
+# API 키·클라이언트 설정 — 저장소에 올리지 않음 (예제: *.example.js)
 pGO/js/google-maps-config.js
+pGO/js/firebase-config.js
